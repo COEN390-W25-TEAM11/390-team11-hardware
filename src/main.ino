@@ -13,62 +13,62 @@
   -> Resistor connected to LED_PIN on ESP
 */
 
-// ===== WIFI =====
 #include <WiFi.h>
-const char* ssid = "CHANGE-THIS-TO-SSID"; // CHANGE IT
-const char* password = "CHANGE-THIS-TO-PASSWORD"; // CHANGE IT
+#include <WebServer.h>
+const char* ssid = "WIFI NAME";       // Replace with your Wi-Fi SSID
+const char* password = "PASSWORD"; // Replace with your Wi-Fi password
 
-// ===== Pin definitions =====
 #define PIR_PIN 21    // Connected to the A pin of the sensor
 #define LED_PIN 23    
 
-void setup_wifi() {
+WebServer server(80);  // Web server on port 80
 
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
+void handleRoot() {
+    int motion = digitalRead(PIR_PIN);  // Read sensor
+    // Motion detected (LOW indicates motion)
+    String motionStatus = (motion == LOW) ? "Motion detected!" : "No motion";
 
-  // Print the ESP32's IP address
-  Serial.print("ESP32 Web Server's IP address: ");
-  Serial.println(WiFi.localIP());
+    // Send the motion status as response
+    server.send(200, "text/plain", motionStatus);
 
 }
 
 void setup() {
+    Serial.begin(115200);
+    
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.println("Connecting to WiFi...");
+    }
 
-  // ===== Begin the serial monitor =====
-  Serial.begin(9600);
+    Serial.println("Connected to WiFi!");
+    Serial.print("ESP32 IP Address: ");
+    Serial.println(WiFi.localIP());
 
-  // ===== Pin setup =====
-  pinMode(LED_BUILTIN, OUTPUT); // Only for visual cue that board is on
-  pinMode(PIR_PIN, INPUT);      // To detect motion
-  pinMode(LED_PIN, OUTPUT);     // To light up when motion is detected
+    server.on("/", handleRoot);
+    server.begin();
 
-  // ===== WIFI setup =====
-  setup_wifi();
-
+    pinMode(LED_BUILTIN, OUTPUT); // Only for visual cue that board is on
+    pinMode(PIR_PIN, INPUT);      // To detect motion
+    pinMode(LED_PIN, OUTPUT);     // To light up when motion is detected
 }
 
 void loop() {
-  
-  // ===== Keep built in LED always on =====
-  digitalWrite(LED_BUILTIN, HIGH); 
+    server.send(200, "text/plain", "ESP32 is connected!");
+    server.handleClient();
+    digitalWrite(LED_BUILTIN, HIGH); // Keep built in LED always on
 
-  // ===== Control the LED according to sensor input =====
-  int motion = digitalRead(PIR_PIN);  // Read sensor
-  if (motion == LOW) { // When motion is detected, sensor returns '0'
-    Serial.println("Motion detected!");
-    digitalWrite(LED_PIN, HIGH); 
-    Serial.println(WiFi.localIP()); // Sometimes the stuff in setup_wifi() doesn't print so I just put it here
-  } else {
-    Serial.println("No motion");
-    digitalWrite(LED_PIN, LOW);  
-  }
+    int motion = digitalRead(PIR_PIN);  // Read sensor
 
-  // ===== Arbitrary delay =====
-  delay(500); 
+    // When motion is detected, sensor returns '0'
+    if (motion == LOW) {
+        Serial.println("Motion detected!");
+        digitalWrite(LED_PIN, HIGH); 
+    } else {
+        Serial.println("No motion");
+        digitalWrite(LED_PIN, LOW);  
+    }
+
+    delay(1000);  // Arbitrary
 }
