@@ -24,8 +24,8 @@
 #define LED_LIGHT 13  // Additional LED indicator
 
 // ========== WIFI AND WEB SERVER INFO ==========
-const char* ssid = "FRD";           // Replace with your Wi-Fi SSID
-const char* password = "22311824";  // Replace with your Wi-Fi password
+const char* ssid = "WIFI";           // Replace with your Wi-Fi SSID
+const char* password = "PASSWORD";  // Replace with your Wi-Fi password
 WebServer server(80);               // Initialize web server on port 80
 
 /* ========== ROOT '/' ENDPOINT ==========
