@@ -1,34 +1,31 @@
+// ========== LIBRARIES ==========
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WebSocketsClient.h>
 #include <ESPping.h>
 
-// Wi-Fi Credentials
-const char* ssid = "FRD";       // Replace with your Wi-Fi SSID
-const char* password = "22311824"; // Replace with your Wi-Fi password
+// ========== WIFI INFORMATION ===========
+const char* ssid = "BLITE4390";       // Replace with your Wi-Fi SSID
+const char* password = "rMRXct56DfLG"; // Replace with your Wi-Fi password
 
-// Hardware Pin Definitions
+// ========== PIN AND LIGHT DEFINITIONS ==========
 #define PIR_PIN 21    // Motion sensor
 #define LED_PIN 23    // Indicator LED
 #define LED_LIGHT 13  // Another LED output
+const char* LED_ID_1 = "6FA6C8AB-EE3B-47A6-B84A-D706B313366B";
 
-// WebSocket Server (Ngrok)
-const char* websocket_host = "a57b-24-200-192-186.ngrok-free.app"; // Ngrok host
-const char* websocket_path = "/EspLight/ws/2658FA6D-BEEB-4861-9AF0-B84E2FDBA0EA"; // WebSocket path
+// ========== WEBSOCKET/NGROK DEFINITIONS ==========
+const char* websocket_host = "eb9e-138-229-30-132.ngrok-free.app"; // Ngrok host
+const char* websocket_path = "/EspLight/ws/6FA6C8AB-EE3B-47A6-B84A-D706B313366B"; // WebSocket path
 const int websocket_port = 443; // Use 443 for WSS, or 80 for WS
+WebSocketsClient webSocket; // WebSocket Client
 
-// Control Variables
+// ========== CONTROL VARIABLES ==========
 bool manualControl = false;
 bool lightState = false;
 bool lastMotionState = false;
 
-// WebSocket Client
-WebSocketsClient webSocket;
-
-unsigned long previousMillis = 0;  // Store the last time the motion was checked
-const long interval = 1000;        // Interval at which to check motion (1 second)
-
-// WebSocket Event Handler
+// ========== WEBSOCKET EVENT HANDLER ==========
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
     switch (type) {
         case WStype_CONNECTED:
@@ -56,7 +53,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
             }
            else if (msg == "{\"overide\":false,\"state\":1}") {
                 manualControl = false;
-                lightState = false;
+                lightState = true;
             }
 
             else if(msg == "{\"overide\":false,\"state\":0}") {
@@ -67,13 +64,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
     }
 }
 
+// ========== SEND POST REQUEST TO MOVEMENTUPDATE ==========
 void sendPOSTRequest(bool motion) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String url = "https://a57b-24-200-192-186.ngrok-free.app/EspLight/2658fa6d-beeb-4861-9af0-b84e2fdba0ea";
+    String url = "https://eb9e-138-229-30-132.ngrok-free.app/EspLight/" + String(LED_ID_1);
 
     http.begin(url);
-    http.addHeader("Content Type", "application/json");
+    http.addHeader("Content-Type", "application/json");
 
     String jsonPayload = "{\"movement\": " + String(motion ? "true" : "false") + "}";
     int httpResponseCode = http.POST(jsonPayload);
@@ -88,7 +86,7 @@ void sendPOSTRequest(bool motion) {
   }
 }
 
-
+// ========== SETUP ==========
 void setup() {
     Serial.begin(115200);
     Serial.println("Starting ESP32...");
@@ -120,43 +118,40 @@ void setup() {
     webSocket.onEvent(webSocketEvent);
 }
 
+// ========== LOOP ==========
 void loop() {
-    // Maintain WebSocket connection
-    webSocket.loop();
+  // Maintain WebSocket connection
+  webSocket.loop();
 
-    // Read motion sensor
-    int motion = digitalRead(PIR_PIN);
-    bool motionDetected = (motion == HIGH); 
+  digitalWrite(LED_BUILTIN, HIGH); // keep on for visual indication that board is running
 
-    // when manual control, use lightState defined earlier instead of motionDetected
-    if (manualControl == true) {
-        // Update LEDs based on light state
+  // Read motion sensor
+  int motion = digitalRead(PIR_PIN);
+  bool motionDetected = (motion == HIGH); 
+
+  Serial.print("manual control: ");
+  Serial.println(manualControl);
+
+  // when manual control, use lightState defined earlier instead of motionDetected
+  if (manualControl == true) {
+    // Update LEDs based on light state
     digitalWrite(LED_PIN, lightState ? HIGH : LOW);
     digitalWrite(LED_LIGHT, lightState ? HIGH : LOW);
-    }
-    else {
-      // Update LEDs based on motion
-      if (motion == HIGH) {
-        digitalWrite(LED_PIN, HIGH);    // Turn on LED
-        digitalWrite(LED_LIGHT, HIGH);  // Turn on additional LED
-      }
-      else if (motion == LOW) {
-        digitalWrite(LED_PIN, LOW);     // Turn off LED
-        digitalWrite(LED_LIGHT, LOW);   // Turn off additional LED
-      }
-    }
+  } else {
+    // Update LEDs based on motion
+    if (motion == HIGH) {
+      Serial.println("Motion detected!");
+      digitalWrite(LED_PIN, HIGH); 
 
-     // Check if it's time to send the motion update
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
-  }
-
-    // Send motion update only when state changes
-    if (!manualControl && motionDetected != lastMotionState) {
+      // Send motion update only when state changes
+      if (motionDetected != lastMotionState) {
         lastMotionState = motionDetected;
-
-        sendPOSTRequest(motionDetected); // Send POST request to log motion event
-
-}
+        sendPOSTRequest(true);
+      }
+  
+    } else {
+      Serial.println("No motion");
+      digitalWrite(LED_PIN, LOW);  
+    }
+  }
 }
