@@ -240,12 +240,10 @@ void loop() {
   int motion = digitalRead(sensorPins[i]);
   bool motionDetected = (motion == HIGH);
 
-  // Compare with the last known state
-  if (motionDetected != lastMotionState[i]) {
-    // State changed — update LED and notify
-    lastMotionState[i] = motionDetected;
+  if (motionDetected != lastMotionState[i]) { // if state has changed
+    lastMotionState[i] = motionDetected; // update lastMotionState
 
-    if (!manualControl[i]) {
+    if (!manualControl[i]) { // if sensor mode
       digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
 
       // only send true motion 
@@ -254,10 +252,9 @@ void loop() {
       }
     }
   } else {
-    // If no change in motion, still update LED in case of manual mode toggle
-    if (!manualControl[i]) {
+    if (!manualControl[i]) { // sensor mode
       digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
-    } else {
+    } else { // manual mode
       digitalWrite(lightPins[i], lightState[i] ? HIGH : LOW);
     }
   }
