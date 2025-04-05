@@ -24,10 +24,10 @@ int sensorPins[2] = {PIR_PIN1, PIR_PIN2};
 #define LED_PIN2 22 
 int lightPins[2] = {LED_PIN1, LED_PIN2};
 
-String espId = "ESPID"; // hardcoded espId for register endpoint
+String espId = "fb3dcd74-f3b7-4bdb-b58a-626bd998724f"; // hardcoded espId for register endpoint
 
 // ========== WEBSOCKET/NGROK DEFINITIONS ==========
-const char* host = "eb9e-138-229-30-132.ngrok-free.app"; // Ngrok host
+const char* host = "8470-138-229-30-132.ngrok-free.app"; // Ngrok host
 
 const int websocket_port = 443; // Use 443 for WSS, or 80 for WS
 WebSocketsClient webSocket; // WebSocket Client
@@ -214,6 +214,7 @@ void setup() {
     // Setup hardware
     pinMode(LED_BUILTIN, OUTPUT);
     pinMode(PIR_PIN1, INPUT);
+    pinMode(PIR_PIN2, INPUT);
     pinMode(LED_PIN1, OUTPUT);
     pinMode(LED_PIN2, OUTPUT);
 
@@ -236,39 +237,29 @@ void loop() {
   digitalWrite(LED_BUILTIN, HIGH);
 
   for (int i = 0; i < 2; i++) {
-    int motion = digitalRead(sensorPins[i]);
-    bool motionDetected = (motion == HIGH);
+  int motion = digitalRead(sensorPins[i]);
+  bool motionDetected = (motion == HIGH);
 
-    Serial.print("Sensor ");
-    Serial.print(sensorPins[i]);
-    Serial.print(" detected motion: ");
-    Serial.println(motionDetected);
+  // Compare with the last known state
+  if (motionDetected != lastMotionState[i]) {
+    // State changed — update LED and notify
+    lastMotionState[i] = motionDetected;
 
-    // brightness control?
-    // if (lightState[i]) { // only if on
-    //   analogWrite(lightPins[i], brightness[i]);  // Adjust the brightness
-    // } 
+    if (!manualControl[i]) {
+      digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
 
-    if (manualControl[i]) { // if manual mode
-      digitalWrite(lightPins[i], lightState[i] ? HIGH : LOW);
-    } else { // if sensor mode
+      // only send true motion 
       if (motionDetected) {
-        digitalWrite(lightPins[i], HIGH);
-
-        // Send motion update only when state changes
-        if (motionDetected != lastMotionState[i]) {
-          lastMotionState[i] = motionDetected;
-          sendPOSTRequest(true, sensorPins[i]);
-        }
-      } else {
-        digitalWrite(lightPins[i], LOW);
-
-        // Send motion update only when state changes
-        if (motionDetected != lastMotionState[i]) {
-          lastMotionState[i] = motionDetected;
-           sendPOSTRequest(false, sensorPins[i]);
-        }
+        sendPOSTRequest(motionDetected, sensorPins[i]);
       }
     }
+  } else {
+    // If no change in motion, still update LED in case of manual mode toggle
+    if (!manualControl[i]) {
+      digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
+    } else {
+      digitalWrite(lightPins[i], lightState[i] ? HIGH : LOW);
+    }
   }
+}
 }
