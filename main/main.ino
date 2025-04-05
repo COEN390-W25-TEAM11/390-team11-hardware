@@ -5,6 +5,7 @@
 #include <ESPping.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <WiFiManager.h>
 
 // ========== DATA STORAGE ===========
 Preferences preferences;
@@ -199,20 +200,21 @@ void setup() {
     Serial.begin(115200);
     Serial.println("Starting ESP32...");
     
-    // Connect to Wi-Fi
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nConnected to Wi-Fi!");
-    Serial.print("ESP32 IP Address: ");
-    Serial.println(WiFi.localIP());
+    Serial.println("Starting WiFiManager...");
+    WiFi.mode(WIFI_STA);
+    WiFiManager wm;
+    wm.resetSettings(); // for testing
+    bool res;
+    res = wm.autoConnect("SmartHome390"); // connect to the hotspot SmartHome390
 
-    // Test internet connectivity
-    bool success = Ping.ping("www.google.com", 3);
-    if (!success) Serial.println("Ping failed");
-    else Serial.println("Ping successful.");
+    if(!res) {
+        Serial.println("Failed to connect");
+        ESP.restart();
+    } 
+    else {
+        //if you get here you have connected to the WiFi    
+        Serial.println("connected...yeey :)");
+    }
 
     // Setup hardware
     pinMode(LED_BUILTIN, OUTPUT);
