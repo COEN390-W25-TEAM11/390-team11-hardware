@@ -38,6 +38,9 @@ bool manualControl[2] = {false, false};
 bool lightState[2] = {false, false};
 bool lastMotionState[2] = {false, false}; 
 int brightness[2] = {255, 255};
+unsigned long lastMotionTime[2] = {0, 0};  // Store the last time motion was detected
+const unsigned long motionTimeout = 10000; // 10 seconds in milliseconds
+unsigned long lastPrintTime[2] = {0, 0};
 
 // ========== REGISTER LIGHTS AND SENSORS (Register Endpoint) ==========
 void registerESP() {
@@ -237,26 +240,42 @@ void loop() {
   digitalWrite(LED_BUILTIN, HIGH);
 
   for (int i = 0; i < 2; i++) {
-  int motion = digitalRead(sensorPins[i]);
-  bool motionDetected = (motion == HIGH);
+    int motion = digitalRead(sensorPins[i]);
+    bool motionDetected = (motion == HIGH);
 
-  if (motionDetected != lastMotionState[i]) { // if state has changed
-    lastMotionState[i] = motionDetected; // update lastMotionState
-
-    if (!manualControl[i]) { // if sensor mode
-      digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
-
-      // only send true motion 
+    if (manualControl[i]) {
+      digitalWrite(lightPins[i], lightState[i] ? HIGH : LOW);
+    } else {
       if (motionDetected) {
-        sendPOSTRequest(motionDetected, sensorPins[i]);
+        if (!lastMotionState[i]) { // only post when state changes
+          sendPOSTRequest(true, sensorPins[i]); 
+        }
+        lastMotionState[i] = true; // update last motion state
+        lastMotionTime[i] = millis(); // reset timer
+        digitalWrite(lightPins[i], HIGH); // turn on light
+      } else { // if no motion
+        unsigned long currentTime = millis();
+        unsigned long elapsed = millis() - lastMotionTime[i]; // update elapsed time
+
+        if (lastMotionState[i]) {
+
+          if (currentTime - lastPrintTime[i] >= 1000) {
+            Serial.print("Sensor ");
+            Serial.print(sensorPins[i]);
+            Serial.print(" - No motion for ");
+            Serial.print(elapsed / 1000.0, 2);
+            Serial.println(" seconds");
+            lastPrintTime[i] = currentTime;
+          }
+
+          if (elapsed >= motionTimeout) { // if time elapsed
+            lastMotionState[i] = false; // update last motion state
+            digitalWrite(lightPins[i], LOW); // turn light off
+            Serial.println("Light turned OFF due to timeout.");
+            sendPOSTRequest(false, sensorPins[i]); 
+          }
+        }
       }
     }
-  } else {
-    if (!manualControl[i]) { // sensor mode
-      digitalWrite(lightPins[i], motionDetected ? HIGH : LOW);
-    } else { // manual mode
-      digitalWrite(lightPins[i], lightState[i] ? HIGH : LOW);
-    }
   }
-}
 }
