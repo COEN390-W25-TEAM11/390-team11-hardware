@@ -3,72 +3,132 @@
 #include <HTTPClient.h>
 #include <WebSocketsClient.h>
 #include <ESPping.h>
+#include <ArduinoJson.h>
+#include <WiFiManager.h>
+#define DEBUG_WEBSOCKETS
 
-// ========== WIFI INFORMATION ===========
-const char* ssid = "BLITE4390";       // Replace with your Wi-Fi SSID
-const char* password = "rMRXct56DfLG"; // Replace with your Wi-Fi password
+// ========== PIN AND ID DEFINITIONS ==========
+// Available pins for motion sensors
+#define PIR_PIN1 21   
+#define PIR_PIN2 17 
+int sensorPins[2] = {PIR_PIN1, PIR_PIN2};
 
-// ========== PIN AND LIGHT DEFINITIONS ==========
-#define PIR_PIN 21    // Motion sensor
-#define LED_PIN 23    // Indicator LED
-#define LED_LIGHT 13  // Another LED output
-const char* LED_ID_1 = "6FA6C8AB-EE3B-47A6-B84A-D706B313366B";
+// Available pins for LEDs
+#define LED_PIN1 23   
+#define LED_PIN2 22 
+int lightPins[2] = {LED_PIN1, LED_PIN2};
+
+String espId = "fb3dcd74-f3b7-4bdb-b58a-626bd998724f"; // hardcoded espId for register endpoint
 
 // ========== WEBSOCKET/NGROK DEFINITIONS ==========
-const char* websocket_host = "eb9e-138-229-30-132.ngrok-free.app"; // Ngrok host
-const char* websocket_path = "/EspLight/ws/6FA6C8AB-EE3B-47A6-B84A-D706B313366B"; // WebSocket path
+const char* host = "8470-138-229-30-132.ngrok-free.app"; // Ngrok host
+const char* websocket_path = "/EspLight/ws/fb3dcd74-f3b7-4bdb-b58a-626bd998724f";
 const int websocket_port = 443; // Use 443 for WSS, or 80 for WS
 WebSocketsClient webSocket; // WebSocket Client
 
-// ========== CONTROL VARIABLES ==========
-bool manualControl = false;
-bool lightState = false;
-bool lastMotionState = false;
+// ========== LIGHT OBJECT ==========
+class Light {
+  public:
+    int pin;
+    bool overide;
+    int state;
+    int brightness;
+    int assignedSensor;
 
-// ========== WEBSOCKET EVENT HANDLER ==========
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
-    switch (type) {
-        case WStype_CONNECTED:
-            Serial.println("WebSocket Connected!");
-            webSocket.sendTXT("ESP32 Connected!");  // Send test message
-            break;
-        
-        case WStype_DISCONNECTED:
-            Serial.println("WebSocket Disconnected! Reconnecting...");
-            webSocket.beginSSL(websocket_host, websocket_port, websocket_path);
-            break;
-        
-        case WStype_TEXT:
-            Serial.print("Received Message: ");
-            Serial.println((char*)payload);
+    Light(int p, int a) {
+      pin = p; 
+      overide = false;
+      state = 0;
+      brightness = 255;
+      assignedSensor = a;
+    }
 
-            String msg = (char*)payload;
-            if (msg == "{\"overide\":true,\"state\":0}") {
-                manualControl = true;
-                lightState = true;
-            }
-            else if (msg == "{\"overide\":true,\"state\":1}") {
-                manualControl = true;
-                lightState = false;
-            }
-           else if (msg == "{\"overide\":false,\"state\":1}") {
-                manualControl = false;
-                lightState = true;
-            }
+    void update(int newState, int newBrightness, bool newOveride) {
+      state = newState;
+      brightness = newBrightness;
+      overide = newOveride;
+    }
 
-            else if(msg == "{\"overide\":false,\"state\":0}") {
-              manualControl = false;
-              lightState = false;
-            }
-            break;
+};
+
+// ========== SENSOR OBJECT ==========
+class Sensor {
+  public:
+    int pin;
+    int sensitivity;
+    int timeout;
+    int assignedLight;
+    bool manualControl;
+    bool lastMotionState;
+    unsigned long lastMotionTime;
+    unsigned long lastPrintTime;
+
+    Sensor(int p, int a) {
+      pin = p;
+      sensitivity = 0;
+      timeout = 1000;
+      assignedLight = a;
+      manualControl = false;
+      lastMotionState = false;
+      lastMotionTime = 0;
+      lastPrintTime = 0;
+    }
+
+    void update(int newSensitivity, int newTimeout) {
+      sensitivity = newSensitivity;
+      timeout = newTimeout;
+    }
+};
+
+// ========== LOCAL LIGHT AND SENSOR OBJECTS ==========
+Light availableLights[2] = { Light(LED_PIN1, 0), Light(LED_PIN2, 0) };
+Sensor availableSensors[2] = { Sensor(PIR_PIN1, 0), Sensor(PIR_PIN2, 0) };
+
+// ========== REGISTER LIGHTS AND SENSORS (Register Endpoint) ==========
+void registerESP() {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String url = "https://" + String(host) + "/EspLight/register/" + espId;
+        http.begin(url);
+        http.addHeader("Content-Type", "application/json");
+
+        // create json object
+        StaticJsonDocument<200> doc;
+        JsonArray sensorArray = doc.createNestedArray("sensorPins");
+        JsonArray lightArray = doc.createNestedArray("lightPins");
+
+        // add pin values
+        sensorArray.add(sensorPins[0]);
+        sensorArray.add(sensorPins[1]);
+
+        lightArray.add(lightPins[0]);
+        lightArray.add(lightPins[1]);
+
+        // json to string
+        String jsonPayload;
+        serializeJson(doc, jsonPayload);
+
+        Serial.println("Sending Register Request:");
+        Serial.println(jsonPayload);
+
+        // send post request
+        int httpResponseCode = http.POST(jsonPayload);
+        String response = http.getString();
+        http.end();
+
+        if (httpResponseCode > 0) {
+            Serial.println("ESP Registered: " + response);
+        } else {
+            Serial.println("Failed to register ESP: " + httpResponseCode);
+        }
     }
 }
 
-// ========== SEND POST REQUEST TO MOVEMENTUPDATE ==========
-void sendPOSTRequest(bool motion) {
+// ========== SEND POST REQUEST TO MOVEMENTUPDATE (MovementUpdate Endpoint) ==========
+void sendPOSTRequest(bool motion, int PIR_PIN) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String url = "https://eb9e-138-229-30-132.ngrok-free.app/EspLight/" + String(LED_ID_1);
+    String url = "https://" + String(host) + "/EspLight/movement/" + espId + "/" + String(PIR_PIN);
 
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
@@ -86,72 +146,213 @@ void sendPOSTRequest(bool motion) {
   }
 }
 
+// ========== PARSE MESSAGE FROM WEBSOCKETS ==========
+void parseMessage(JsonDocument& doc) {
+
+  // get lights info
+  JsonArray lights = doc["Lights"];
+  for (JsonObject light : lights) {
+    int pin = light["Pin"];
+    bool overide = light["Overide"];
+    int state = light["State"];
+    int brightness = light["Brightness"];
+
+    for (int i=0; i<2; i++) {
+      if (availableLights[i].pin == pin) {
+        availableLights[i].overide = overide;
+        availableLights[i].state = state;
+        availableLights[i].brightness = brightness;
+
+        if (availableSensors[i].assignedLight == pin) {
+          availableSensors[i].manualControl = overide;
+
+          // Serial.print("Sensor Pin: ");
+          // Serial.print(availableSensors[i]);
+          // Serial.print(" set to ");
+          // Serial.println("overide");
+        }
+
+        Serial.print("Light Pin: ");
+        Serial.print(availableLights[i].pin);
+        Serial.println(" updated!");
+      }
+    }
+  }
+
+  // get sensors info
+  JsonArray sensors = doc["Sensors"];
+  for (JsonObject sensor : sensors) {
+    int pin = sensor["Pin"];
+    int sensitivity = sensor["Sensitivity"];
+    int timeout = sensor["Timeout"];
+
+    for (int i=0; i<2; i++) {
+      if (availableSensors[i].pin == pin) {
+        availableSensors[i].sensitivity = sensitivity;
+        availableSensors[i].timeout = timeout;
+
+        // Serial.print("Sensor Pin: ");
+        // Serial.print(availableSensors[i].pin);
+        // Serial.println(" updated!");
+      }
+    }
+  }
+
+  // get assigned info
+  JsonArray assigned = doc["Assigned"];
+  for (JsonObject assignment : assigned) {
+    int sensorPin = assignment["SensorPin"];
+    int lightPin = assignment["LightPin"];
+
+    for (int i=0; i<2; i++) {
+      if (availableSensors[i].pin == sensorPin) {
+        availableSensors[i].assignedLight = lightPin;
+      }
+      if (availableLights[i].pin == lightPin) {
+        availableLights[i].assignedSensor = sensorPin;
+      }
+    }
+
+    Serial.print("Combination sensor ");
+    Serial.print(sensorPin);
+    Serial.print(" and light ");
+    Serial.print(lightPin);
+    Serial.println(" received!");
+  }
+}
+
+// ========== WEBSOCKET EVENT HANDLER ==========
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
+    switch (type) {
+        case WStype_CONNECTED:
+            Serial.println("WebSocket Connected!");
+            webSocket.sendTXT("ESP32 Connected!");  // Send test message
+            break;
+        
+        case WStype_DISCONNECTED:
+            Serial.println("WebSocket Disconnected! Reconnecting...");
+            webSocket.beginSSL(host, websocket_port, websocket_path);
+            break;
+        
+        case WStype_TEXT:
+            Serial.println("--- Received Message: ---");
+
+            // create json message and parse
+            StaticJsonDocument<512> doc;
+            DeserializationError error = deserializeJson(doc, (char*)payload);
+
+            if (error) {
+              Serial.print("Failed to parse JSON: ");
+              Serial.println(error.f_str());
+              return;
+            }
+
+            parseMessage(doc);
+            break;
+      }
+}
+
 // ========== SETUP ==========
 void setup() {
     Serial.begin(115200);
     Serial.println("Starting ESP32...");
     
-    // Connect to Wi-Fi
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nConnected to Wi-Fi!");
-    Serial.print("ESP32 IP Address: ");
-    Serial.println(WiFi.localIP());
+    Serial.println("Starting WiFiManager...");
+    WiFi.mode(WIFI_STA);
+    WiFiManager wm;
+    //wm.resetSettings(); // for testing
+    bool res;
+    res = wm.autoConnect("SmartHome390"); // connect to the hotspot SmartHome390
 
-    // Test internet connectivity
-    bool success = Ping.ping("www.google.com", 3);
-    if (!success) Serial.println("Ping failed");
-    else Serial.println("Ping successful.");
+    if(!res) {
+        Serial.println("Failed to connect");
+        ESP.restart();
+    } 
+    else {
+        //if you get here you have connected to the WiFi    
+        Serial.println("connected...yeey :)");
+    }
+
+    // WebSocket Connection
+    Serial.println("Connecting to WebSocket: " + String(host) + websocket_path);
+    webSocket.beginSSL(host, websocket_port, websocket_path);
+    webSocket.onEvent(webSocketEvent);
 
     // Setup hardware
     pinMode(LED_BUILTIN, OUTPUT);
-    pinMode(PIR_PIN, INPUT);
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(LED_LIGHT, OUTPUT);
+    pinMode(PIR_PIN1, INPUT);
+    pinMode(PIR_PIN2, INPUT);
+    pinMode(LED_PIN1, OUTPUT);
+    pinMode(LED_PIN2, OUTPUT);
 
-    // WebSocket Connection
-    Serial.println("Connecting to WebSocket: " + String(websocket_host) + websocket_path);
-    webSocket.beginSSL(websocket_host, websocket_port, websocket_path);
-    webSocket.onEvent(webSocketEvent);
+    // Register ESP on the server
+    registerESP();
 }
 
 // ========== LOOP ==========
 void loop() {
-  // Maintain WebSocket connection
+  
   webSocket.loop();
-
   digitalWrite(LED_BUILTIN, HIGH); // keep on for visual indication that board is running
 
-  // Read motion sensor
-  int motion = digitalRead(PIR_PIN);
-  bool motionDetected = (motion == HIGH); 
+  // parse through the available lights and sensors
+  for (int i = 0; i < 2; i++) {
 
-  Serial.print("manual control: ");
-  Serial.println(manualControl);
+    int motion = digitalRead(availableSensors[i].pin); 
+    bool motionDetected = (motion == HIGH);
+    int assignedLightPin = availableSensors[i].assignedLight;
 
-  // when manual control, use lightState defined earlier instead of motionDetected
-  if (manualControl == true) {
-    // Update LEDs based on light state
-    digitalWrite(LED_PIN, lightState ? HIGH : LOW);
-    digitalWrite(LED_LIGHT, lightState ? HIGH : LOW);
-  } else {
-    // Update LEDs based on motion
-    if (motion == HIGH) {
-      Serial.println("Motion detected!");
-      digitalWrite(LED_PIN, HIGH); 
-
-      // Send motion update only when state changes
-      if (motionDetected != lastMotionState) {
-        lastMotionState = motionDetected;
-        sendPOSTRequest(true);
+    // find index of associated light
+    int lightIndex = -1;
+    for (int j = 0; j < 2; j++) {
+      if (availableLights[j].pin == assignedLightPin) {
+        lightIndex = j;
+        break;
       }
-  
+    }
+
+    if (lightIndex == -1) {
+      Serial.println("No matching light found!");
+      continue;
+    }
+
+    // control in manual or sensor mode
+    if (availableLights[lightIndex].overide) {
+      digitalWrite(availableLights[lightIndex].pin, availableLights[lightIndex].state ? HIGH : LOW);
     } else {
-      Serial.println("No motion");
-      digitalWrite(LED_PIN, LOW);  
+      if (motionDetected) {
+        digitalWrite(availableLights[lightIndex].pin, HIGH);
+
+        if (!availableSensors[i].lastMotionState) { // only post when state changes
+          sendPOSTRequest(true, availableSensors[i].pin); 
+        }
+
+        availableSensors[i].lastMotionState = true; // update last motion state
+        availableSensors[i].lastMotionTime = millis(); // reset timer
+
+      } else {
+        unsigned long currentTime = millis();
+        unsigned long elapsed = currentTime - availableSensors[i].lastMotionTime;
+
+        if (availableSensors[i].lastMotionState) {
+        
+          if (currentTime - availableSensors[i].lastPrintTime >= 1000) { // print every second
+            Serial.print("Sensor ");
+            Serial.print(availableSensors[i].pin);
+            Serial.print(" - No motion for ");
+            Serial.print(elapsed / 1000.0, 2);
+            Serial.println(" seconds");
+            availableSensors[i].lastPrintTime = currentTime;
+          }
+
+          if (elapsed >= availableSensors[i].timeout) { // if time elapsed
+            availableSensors[i].lastMotionState = false; // update last motion state
+            digitalWrite(availableLights[lightIndex].pin, LOW); // turn light off
+            Serial.println("Light turned OFF due to timeout.");
+            sendPOSTRequest(false, availableSensors[i].pin); 
+          }
+        }
+      }
     }
   }
 }
