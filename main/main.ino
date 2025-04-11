@@ -87,8 +87,8 @@ class Sensor {
 };
 
 // ========== LOCAL LIGHT AND SENSOR OBJECTS ==========
-Light availableLights[2] = { Light(LED_PIN1, 0), Light(LED_PIN2, 0) };
-Sensor availableSensors[2] = { Sensor(PIR_PIN1, 0), Sensor(PIR_PIN2, 0) };
+Light availableLights[2] = { Light(LED_PIN1, -1), Light(LED_PIN2, -1) };
+Sensor availableSensors[2] = { Sensor(PIR_PIN1, -1), Sensor(PIR_PIN2, -1) };
 
 // ========== REGISTER LIGHTS AND SENSORS (Register Endpoint) ==========
 void registerESP() {
@@ -323,6 +323,10 @@ void loop() {
 
   // parse through the available lights and sensors
   for (int i = 0; i < 2; i++) {
+
+    if (availableLights[i].isActive == false) {
+      digitalWrite(availableLights[i].pin, LOW);
+    }
 
     if (!availableSensors[i].isActive && !availableLights[i].isActive) continue; // skip if inactive
 
