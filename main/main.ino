@@ -21,7 +21,7 @@ int lightPins[2] = {LED_PIN1, LED_PIN2};
 String espId = "fb3dcd74-f3b7-4bdb-b58a-626bd998724f"; // hardcoded espId for register endpoint
 
 // ========== WEBSOCKET/NGROK DEFINITIONS ==========
-const char* host = "8470-138-229-30-132.ngrok-free.app"; // Ngrok host
+const char* host = "0c0f-138-229-30-132.ngrok-free.app"; // Ngrok host
 const char* websocket_path = "/EspLight/ws/fb3dcd74-f3b7-4bdb-b58a-626bd998724f";
 const int websocket_port = 443; // Use 443 for WSS, or 80 for WS
 WebSocketsClient webSocket; // WebSocket Client
@@ -34,6 +34,7 @@ class Light {
     int state;
     int brightness;
     int assignedSensor;
+    bool isActive;
 
     Light(int p, int a) {
       pin = p; 
@@ -41,12 +42,14 @@ class Light {
       state = 0;
       brightness = 255;
       assignedSensor = a;
+      isActive = false;
     }
 
     void update(int newState, int newBrightness, bool newOveride) {
       state = newState;
       brightness = newBrightness;
       overide = newOveride;
+      isActive = true;
     }
 
 };
@@ -62,6 +65,7 @@ class Sensor {
     bool lastMotionState;
     unsigned long lastMotionTime;
     unsigned long lastPrintTime;
+    bool isActive;
 
     Sensor(int p, int a) {
       pin = p;
@@ -72,11 +76,13 @@ class Sensor {
       lastMotionState = false;
       lastMotionTime = 0;
       lastPrintTime = 0;
+      isActive = false;
     }
 
     void update(int newSensitivity, int newTimeout) {
       sensitivity = newSensitivity;
       timeout = newTimeout;
+      isActive = true;
     }
 };
 
@@ -128,17 +134,19 @@ void registerESP() {
 void sendPOSTRequest(bool motion, int PIR_PIN) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String url = "https://" + String(host) + "/EspLight/movement/" + espId + "/" + String(PIR_PIN);
+    String url = "https://" + String(host) + "/EspLight/movement/" + espId + "/" + String(PIR_PIN)
+                  + "?movement=" + (motion ? "true" : "false");
 
     http.begin(url);
-    http.addHeader("Content-Type", "application/json");
+    // http.addHeader("Content-Type", "application/json");
 
-    String jsonPayload = "{\"movement\": " + String(motion ? "true" : "false") + "}";
-    int httpResponseCode = http.POST(jsonPayload);
-    http.end();
+    // String jsonPayload = "{\"movement\": " + String(motion ? "true" : "false") + "}";
+    // int httpResponseCode = http.POST(jsonPayload);
+    int httpResponseCode = http.POST("");
+     http.end();
 
     if (httpResponseCode > 0) {
-      Serial.println("Motion event sent: " + jsonPayload);
+      Serial.println("Motion event sent: " + url);
     }
     else {
       Serial.println("Error sending POST request");
@@ -149,75 +157,93 @@ void sendPOSTRequest(bool motion, int PIR_PIN) {
 // ========== PARSE MESSAGE FROM WEBSOCKETS ==========
 void parseMessage(JsonDocument& doc) {
 
+  // clear active
+  for (int i = 0; i < 2; i++) {
+    availableLights[i].isActive = false;
+    availableLights[i].assignedSensor = 0;
+  }
+  for (int i = 0; i < 2; i++) {
+    availableSensors[i].isActive = false;
+    availableSensors[i].assignedLight = 0;
+  }
+
   // get lights info
-  JsonArray lights = doc["Lights"];
-  for (JsonObject light : lights) {
-    int pin = light["Pin"];
-    bool overide = light["Overide"];
-    int state = light["State"];
-    int brightness = light["Brightness"];
+  if (doc.containsKey("Lights")) {
+    JsonArray lights = doc["Lights"];
+    for (JsonObject light : lights) {
+      int pin = light["Pin"];
+      bool overide = light["Overide"];
+      int state = light["State"];
+      int brightness = light["Brightness"];
 
-    for (int i=0; i<2; i++) {
-      if (availableLights[i].pin == pin) {
-        availableLights[i].overide = overide;
-        availableLights[i].state = state;
-        availableLights[i].brightness = brightness;
+      for (int i=0; i<2; i++) {
+        if (availableLights[i].pin == pin) {
+          availableLights[i].overide = overide;
+          availableLights[i].state = state;
+          availableLights[i].brightness = brightness;
+          availableLights[i].isActive = true;
 
-        if (availableSensors[i].assignedLight == pin) {
-          availableSensors[i].manualControl = overide;
+          if (availableSensors[i].assignedLight == pin) {
+            availableSensors[i].manualControl = overide;
 
-          // Serial.print("Sensor Pin: ");
-          // Serial.print(availableSensors[i]);
-          // Serial.print(" set to ");
-          // Serial.println("overide");
+            // Serial.print("Sensor Pin: ");
+            // Serial.print(availableSensors[i]);
+            // Serial.print(" set to ");
+            // Serial.println("overide");
+          }
+
+          Serial.print("Light Pin: ");
+          Serial.print(availableLights[i].pin);
+          Serial.println(" updated!");
         }
-
-        Serial.print("Light Pin: ");
-        Serial.print(availableLights[i].pin);
-        Serial.println(" updated!");
       }
     }
   }
 
-  // get sensors info
-  JsonArray sensors = doc["Sensors"];
-  for (JsonObject sensor : sensors) {
-    int pin = sensor["Pin"];
-    int sensitivity = sensor["Sensitivity"];
-    int timeout = sensor["Timeout"];
+  // get sensors info 
+  if (doc.containsKey("Sensors")) {
+    JsonArray sensors = doc["Sensors"];
+    for (JsonObject sensor : sensors) {
+      int pin = sensor["Pin"];
+      int sensitivity = sensor["Sensitivity"];
+      int timeout = sensor["Timeout"];
 
-    for (int i=0; i<2; i++) {
-      if (availableSensors[i].pin == pin) {
-        availableSensors[i].sensitivity = sensitivity;
-        availableSensors[i].timeout = timeout;
+      for (int i=0; i<2; i++) {
+        if (availableSensors[i].pin == pin) {
+          availableSensors[i].sensitivity = sensitivity;
+          availableSensors[i].timeout = timeout;
+          availableSensors[i].isActive = true;
 
-        // Serial.print("Sensor Pin: ");
-        // Serial.print(availableSensors[i].pin);
-        // Serial.println(" updated!");
+          Serial.print("Sensor Pin: ");
+          Serial.print(availableSensors[i].pin);
+          Serial.println(" updated!");
+        }
       }
     }
   }
 
   // get assigned info
+  if (doc.containsKey("Assigned")) {
   JsonArray assigned = doc["Assigned"];
-  for (JsonObject assignment : assigned) {
-    int sensorPin = assignment["SensorPin"];
-    int lightPin = assignment["LightPin"];
+    for (JsonObject assignment : assigned) {
+      int sensorPin = assignment["SensorPin"];
+      int lightPin = assignment["LightPin"];
 
-    for (int i=0; i<2; i++) {
-      if (availableSensors[i].pin == sensorPin) {
-        availableSensors[i].assignedLight = lightPin;
+      for (int i=0; i<2; i++) {
+        if (availableSensors[i].pin == sensorPin) {
+          availableSensors[i].assignedLight = lightPin;
+        }
+        if (availableLights[i].pin == lightPin) {
+          availableLights[i].assignedSensor = sensorPin;
+        }
       }
-      if (availableLights[i].pin == lightPin) {
-        availableLights[i].assignedSensor = sensorPin;
-      }
+
+      Serial.print("Combination sensor ");
+      Serial.print(sensorPin);
+      Serial.print(" and light ");
+      Serial.print(lightPin);
+      Serial.println(" received!");
     }
-
-    Serial.print("Combination sensor ");
-    Serial.print(sensorPin);
-    Serial.print(" and light ");
-    Serial.print(lightPin);
-    Serial.println(" received!");
   }
 }
 
@@ -298,6 +324,14 @@ void loop() {
   // parse through the available lights and sensors
   for (int i = 0; i < 2; i++) {
 
+    if (!availableSensors[i].isActive && !availableLights[i].isActive) continue; // skip if inactive
+
+    //make manual mode work even if nlight not assigned
+    if (availableLights[i].isActive && availableLights[i].overide) {
+      digitalWrite(availableLights[i].pin, availableLights[i].state ? HIGH : LOW);
+      continue; 
+    }
+
     int motion = digitalRead(availableSensors[i].pin); 
     bool motionDetected = (motion == HIGH);
     int assignedLightPin = availableSensors[i].assignedLight;
@@ -311,8 +345,10 @@ void loop() {
       }
     }
 
-    if (lightIndex == -1) {
-      Serial.println("No matching light found!");
+    if (lightIndex == -1) { // if not assigned
+      if (motionDetected) { // send motion but do not control light
+        sendPOSTRequest(true, availableSensors[i].pin);
+      }
       continue;
     }
 
@@ -323,9 +359,9 @@ void loop() {
       if (motionDetected) {
         digitalWrite(availableLights[lightIndex].pin, HIGH);
 
-        if (!availableSensors[i].lastMotionState) { // only post when state changes
+        //if (!availableSensors[i].lastMotionState) { // only post when state changes
           sendPOSTRequest(true, availableSensors[i].pin); 
-        }
+        //}
 
         availableSensors[i].lastMotionState = true; // update last motion state
         availableSensors[i].lastMotionTime = millis(); // reset timer
@@ -349,7 +385,7 @@ void loop() {
             availableSensors[i].lastMotionState = false; // update last motion state
             digitalWrite(availableLights[lightIndex].pin, LOW); // turn light off
             Serial.println("Light turned OFF due to timeout.");
-            sendPOSTRequest(false, availableSensors[i].pin); 
+            //sendPOSTRequest(false, availableSensors[i].pin); 
           }
         }
       }
