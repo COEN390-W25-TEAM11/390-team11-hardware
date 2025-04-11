@@ -21,7 +21,7 @@ int lightPins[2] = {LED_PIN1, LED_PIN2};
 String espId = "fb3dcd74-f3b7-4bdb-b58a-626bd998724f"; // hardcoded espId for register endpoint
 
 // ========== WEBSOCKET/NGROK DEFINITIONS ==========
-const char* host = "8470-138-229-30-132.ngrok-free.app"; // Ngrok host
+const char* host = "0c0f-138-229-30-132.ngrok-free.app"; // Ngrok host
 const char* websocket_path = "/EspLight/ws/fb3dcd74-f3b7-4bdb-b58a-626bd998724f";
 const int websocket_port = 443; // Use 443 for WSS, or 80 for WS
 WebSocketsClient webSocket; // WebSocket Client
@@ -128,17 +128,19 @@ void registerESP() {
 void sendPOSTRequest(bool motion, int PIR_PIN) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    String url = "https://" + String(host) + "/EspLight/movement/" + espId + "/" + String(PIR_PIN);
+    String url = "https://" + String(host) + "/EspLight/movement/" + espId + "/" + String(PIR_PIN)
+                  + "?movement=" + (motion ? "true" : "false");
 
     http.begin(url);
-    http.addHeader("Content-Type", "application/json");
+    // http.addHeader("Content-Type", "application/json");
 
-    String jsonPayload = "{\"movement\": " + String(motion ? "true" : "false") + "}";
-    int httpResponseCode = http.POST(jsonPayload);
-    http.end();
+    // String jsonPayload = "{\"movement\": " + String(motion ? "true" : "false") + "}";
+    // int httpResponseCode = http.POST(jsonPayload);
+    int httpResponseCode = http.POST("");
+     http.end();
 
     if (httpResponseCode > 0) {
-      Serial.println("Motion event sent: " + jsonPayload);
+      Serial.println("Motion event sent: " + url);
     }
     else {
       Serial.println("Error sending POST request");
@@ -312,7 +314,7 @@ void loop() {
     }
 
     if (lightIndex == -1) {
-      Serial.println("No matching light found!");
+      //Serial.println("No matching light found!");
       continue;
     }
 
@@ -323,9 +325,9 @@ void loop() {
       if (motionDetected) {
         digitalWrite(availableLights[lightIndex].pin, HIGH);
 
-        if (!availableSensors[i].lastMotionState) { // only post when state changes
+        //if (!availableSensors[i].lastMotionState) { // only post when state changes
           sendPOSTRequest(true, availableSensors[i].pin); 
-        }
+        //}
 
         availableSensors[i].lastMotionState = true; // update last motion state
         availableSensors[i].lastMotionTime = millis(); // reset timer
@@ -349,7 +351,7 @@ void loop() {
             availableSensors[i].lastMotionState = false; // update last motion state
             digitalWrite(availableLights[lightIndex].pin, LOW); // turn light off
             Serial.println("Light turned OFF due to timeout.");
-            sendPOSTRequest(false, availableSensors[i].pin); 
+            //sendPOSTRequest(false, availableSensors[i].pin); 
           }
         }
       }
